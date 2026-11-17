@@ -6,7 +6,7 @@ alembic==1.12.1
 pydantic==2.5.0
 pydantic-settings==2.1.0
 python-multipart==0.0.6
-aiofiles==23.2.1
+aiofiles==25.1.0
 openai>=1.30.0
 beautifulsoup4==4.13.5
 python-docx==1.1.0
