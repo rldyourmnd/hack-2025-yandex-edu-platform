@@ -136,7 +136,7 @@ jobs:
 
   gate:
     needs: [python, node, hadolint, semgrep, dependency-review, workflows, merge-stops]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
