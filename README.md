@@ -444,3 +444,19 @@ PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/test
 ```
 
 This historical prototype mounts demo teacher/student routes without authentication. Run it locally for evaluation; those routes are not a production access-control system. Real graph generation needs an operator-owned OpenAI-compatible provider configuration. For a native backend run, set `UPLOAD_DIR` to a writable local directory and configure the database, API key and signing secret. The root `.env` is read consistently from the repository path.
+
+## Repository verification commands
+
+`just setup` prepares the existing backend/frontend graphs on an execution host.
+It recreates only the declared backend virtual environment; the uv download cache
+stays available, and packages from another interpreter cannot survive a Python change.
+The backend Python selection lives in `backend/.python-version`; the source
+linter lives in `tools/ci-requirements.txt`. These preserve the existing selections.
+After activating `backend/.venv`, `just check` runs the offline Ruff, Dockerfile,
+workflow and history checks. It imports no application code.
+`just test` runs the synthetic backend schema/router suite; `just build` produces
+the existing TypeScript/Vite artifact.
+`just scan` retains the mandatory network-backed Semgrep rules check with metrics
+off. `just verify` includes every command. Tests, builds and application dependency
+preparation belong on execution hosts. These commands start no service and make
+no model, sign-in, database or deployment request.

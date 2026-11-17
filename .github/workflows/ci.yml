@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   workflow_dispatch:
@@ -22,19 +23,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
+        with:
+          tools: just@1.59.0
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: '0.13.5'
-          python-version: '3.11'
           enable-cache: 'false'
           activate-environment: 'true'
           working-directory: backend
-      - name: Ruff and unit tests
-        working-directory: backend
+      - name: Prepare backend dependencies and preserve source/native checks
         run: |
-          uv pip install -r requirements.txt ruff==0.15.22
-          python -m ruff check .
-          python -m unittest discover -s tests -v
+          just setup-backend
+          just check-python
+          just test
 
   node:
     runs-on: ubuntu-26.04
@@ -43,16 +45,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
+        with:
+          tools: just@1.59.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
           package-manager-cache: false
       - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
-      - name: Install and build
-        working-directory: frontend
+      - name: Install the frozen frontend and build its actual artifact
         run: |
-          npm ci
-          npm run build
+          just setup-frontend
+          just build
 
   hadolint:
     runs-on: ubuntu-26.04
@@ -61,6 +65,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
+        with:
+          tools: just@1.59.0
       - name: Install hadolint 2.15.1, checked against its digest
         run: |
           curl -fsSL -o "$RUNNER_TEMP/hadolint" https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64
@@ -68,9 +75,7 @@ jobs:
           install -D -m 0755 "$RUNNER_TEMP/hadolint" "$HOME/.local/bin/hadolint"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Lint every Dockerfile
-        run: |
-          find . -name 'Dockerfile*' -not -path '*/node_modules/*' -print0 \
-            | xargs -0 --no-run-if-empty hadolint --failure-threshold warning
+        run: just check-docker
 
   semgrep:
     runs-on: ubuntu-26.04
@@ -79,12 +84,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
+        with:
+          tools: just@1.59.0
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: '0.13.5'
           enable-cache: 'false'
       - name: Semgrep rules
-        run: uvx semgrep@1.182.1 scan --error --metrics off --config p/ci
+        run: just scan
 
   dependency-review:
     runs-on: ubuntu-26.04
@@ -105,7 +113,7 @@ jobs:
           fetch-depth: 0
       - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
         with:
-          tools: zizmor@1.32.0
+          tools: zizmor@1.32.0,just@1.59.0
       - name: Install actionlint 1.7.12 and gitleaks 8.30.1, checked against their digests
         run: |
           set -euo pipefail
@@ -117,23 +125,17 @@ jobs:
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$bin" "gitleaks"
           echo "$bin" >> "$GITHUB_PATH"
-      - name: Lint and audit workflows
-        run: |
-          actionlint
-          zizmor --offline --no-progress .github
-      - name: Scan new pull request commits, or the full history on main
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ -n "$BASE" ]; then
-            gitleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
-          else
-            gitleaks git --no-banner --redact .
-          fi
+      - name: Check workflows and the retained history
+        run: just check-workflows
+
+  merge-stops:
+    if: github.event_name == 'pull_request'
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@9fead1382c452a6b791a0a9e464ac6ac66537ac3 # v0.6.51
+    permissions:
+      contents: read
 
   gate:
-    needs: [python, node, hadolint, semgrep, dependency-review, workflows]
+    needs: [python, node, hadolint, semgrep, dependency-review, workflows, merge-stops]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -142,5 +144,5 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
           EXPECTED: >-
-            {"python":"success","node":"success","hadolint":"success","semgrep":"success","dependency-review":"${{ github.event_name == 'pull_request' && 'success' || 'skipped' }}","workflows":"success"}
+            {"python":"success","node":"success","hadolint":"success","semgrep":"success","dependency-review":"${{ github.event_name == 'pull_request' && 'success' || 'skipped' }}","workflows":"success","merge-stops":"${{ github.event_name == 'pull_request' && 'success' || 'skipped' }}"}
         run: jq -e --argjson want "$EXPECTED" 'map_values(.result) == $want' <<< "$NEEDS"
